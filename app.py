@@ -85,15 +85,54 @@ def post():
 @app.route('/stream/<username>')
 def stream(username=None):
   template = 'stream.html'
-  if username and username != current_user.username:
-    user = models.User.select().where(models.User.username**username).get()
+  if username and username != current_user.username: # if there is a user and the user is not the current user show the stream of that user
+    # See my friends posts
+    user = models.User.select().where(models.User.username**username).get() # ** is a case insensitive search
     stream = user.posts.limit(100)
-  else:
+  else: # if no username is passed in is the current user's, show the current user's stream
     stream = current_user.get_stream().limit(100)
     user = current_user
-  if username:
-    template = 'user_stream.html'
+  if username: # no matter what if a username is passed in, set the template to the user's stream, regardless of if it's the current user or another user
+    template = 'user_stream.html' # if we're looking at someone else's stream, we want to use a different template
   return render_template(template, stream=stream, user=user)
+
+@app.route('/follow/<username>')
+@login_required
+def follow(username):
+  try:
+    to_user = models.User.get(models.User.username**username) # Try to get the user
+  except models.DoesNotExist: # If the user doesn't exist
+    pass
+  else:
+    try: # Try to create a relationship
+      models.Relationship.create(
+        from_user=g.user._get_current_object(),
+        to_user=to_user
+      )
+    except models.IntegrityError: # If the relationship already exists (If the user already follows the user)
+      pass
+    else:
+      flash("You're now following {}!".format(to_user.username), "success")
+  return redirect(url_for('stream', username=to_user.username))
+    
+@app.route('/unfollow/<username>')
+@login_required
+def unfollow(username):
+  try:
+    to_user = models.User.get(models.User.username**username) # Try to get the user
+  except models.DoesNotExist: # If the user doesn't exist
+    pass
+  else:
+    try: # Try to get the relationship
+      models.Relationship.get(
+        from_user=g.user._get_current_object(),
+        to_user=to_user
+      ).delete_instance()
+    except models.IntegrityError: # If the relationship already exists (If the user already unfollowed the user)
+      pass
+    else:
+      flash("You've unfollowed {}!".format(to_user.username), "success")
+  return redirect(url_for('stream', username=to_user.username))
 
 @app.route('/')
 def index():
