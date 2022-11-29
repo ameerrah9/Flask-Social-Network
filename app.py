@@ -1,4 +1,4 @@
-from flask import Flask, g, render_template, flash, redirect, url_for
+from flask import Flask, g, render_template, flash, redirect, url_for, abort
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from flask_bcrypt import check_password_hash
 
@@ -85,16 +85,26 @@ def post():
 @app.route('/stream/<username>')
 def stream(username=None):
   template = 'stream.html'
-  if username and username != current_user.username: # if there is a user and the user is not the current user show the stream of that user
-    # See my friends posts
-    user = models.User.select().where(models.User.username**username).get() # ** is a case insensitive search
-    stream = user.posts.limit(100)
-  else: # if no username is passed in is the current user's, show the current user's stream
+  if username and username != current_user.username:
+    try:
+      user = models.User.select().where(models.User.username**username).get()
+    except models.DoesNotExist:
+      abort(404)
+    else:
+      stream = user.posts.limit(100)
+  else:
     stream = current_user.get_stream().limit(100)
     user = current_user
-  if username: # no matter what if a username is passed in, set the template to the user's stream, regardless of if it's the current user or another user
-    template = 'user_stream.html' # if we're looking at someone else's stream, we want to use a different template
+  if username:
+    template = 'user_stream.html'
   return render_template(template, stream=stream, user=user)
+
+@app.route('/post/<int:post_id>')
+def view_post(post_id):
+  posts = models.Post.select().where(models.Post.id == post_id)
+  if posts.count() == 0:
+    abort(404)
+  return render_template('stream.html', stream=posts)
 
 @app.route('/follow/<username>')
 @login_required
@@ -102,7 +112,7 @@ def follow(username):
   try:
     to_user = models.User.get(models.User.username**username) # Try to get the user
   except models.DoesNotExist: # If the user doesn't exist
-    pass
+    abort(404) # Throw a 404 error
   else:
     try: # Try to create a relationship
       models.Relationship.create(
@@ -110,7 +120,7 @@ def follow(username):
         to_user=to_user
       )
     except models.IntegrityError: # If the relationship already exists (If the user already follows the user)
-      pass
+      pass # Do nothing
     else:
       flash("You're now following {}!".format(to_user.username), "success")
   return redirect(url_for('stream', username=to_user.username))
@@ -121,7 +131,7 @@ def unfollow(username):
   try:
     to_user = models.User.get(models.User.username**username) # Try to get the user
   except models.DoesNotExist: # If the user doesn't exist
-    pass
+    abort(404) # Throw a 404 error
   else:
     try: # Try to get the relationship
       models.Relationship.get(
@@ -129,7 +139,7 @@ def unfollow(username):
         to_user=to_user
       ).delete_instance()
     except models.IntegrityError: # If the relationship already exists (If the user already unfollowed the user)
-      pass
+      pass # Do nothing
     else:
       flash("You've unfollowed {}!".format(to_user.username), "success")
   return redirect(url_for('stream', username=to_user.username))
@@ -138,6 +148,10 @@ def unfollow(username):
 def index():
   stream = models.Post.select().limit(100)
   return render_template('stream.html', stream=stream)
+
+@app.errorhandler(404)
+def not_found(error):
+  return render_template('404.html'), 404
 
 if __name__ == '__main__':
   models.initialize()
